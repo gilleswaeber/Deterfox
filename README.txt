@@ -1,3 +1,7 @@
+This is a fork of Firefox, used for development of deterministicfox
+
+-----This is the original README-----
+
 An explanation of the Mozilla Source Code Directory Structure and links to
 project pages with documentation can be found at:
 
