@@ -48,6 +48,11 @@ public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(CallbackObject)
 
+  //_MODIFY
+  uint64_t expTime;
+  void* key;
+  //_MODIFY
+
   // The caller may pass a global object which will act as an override for the
   // incumbent script settings object when the callback is invoked (overriding
   // the entry point computed from aCallback). If no override is required, the

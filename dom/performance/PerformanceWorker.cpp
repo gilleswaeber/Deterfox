@@ -6,6 +6,9 @@
 
 #include "PerformanceWorker.h"
 #include "WorkerPrivate.h"
+//_MODIFY
+#include "../../js/src/vm/Counter.h"
+//_MODIFY
 
 namespace mozilla {
 namespace dom {
@@ -26,6 +29,13 @@ PerformanceWorker::~PerformanceWorker()
 DOMHighResTimeStamp
 PerformanceWorker::Now() const
 {
+
+  //_MODIFY BEGIN 10/21/2016
+  uint64_t time = get_counter(this->GetDocumentIfCurrent());
+  set_synchronize(true, this->GetDocumentIfCurrent());
+  return time;
+  //_MODIFY END
+
   TimeDuration duration =
     TimeStamp::Now() - mWorkerPrivate->NowBaseTimeStamp();
   return RoundTime(duration.ToMilliseconds());

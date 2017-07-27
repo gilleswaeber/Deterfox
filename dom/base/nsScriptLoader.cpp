@@ -56,6 +56,11 @@
 #include "mozilla/Unused.h"
 #include "nsIScriptError.h"
 
+//_MODIFY
+#include "../../js/src/vm/Counter.h"
+#include "nsThread.h"
+//_MODIFY
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -1398,6 +1403,22 @@ nsScriptLoader::CreateLoadRequest(nsScriptKind aKind,
 bool
 nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
 {
+    printf("ProcessScriptElement\n");
+    //_MODIFY
+    nsThread* mainThread;
+    NS_GetMainThread((nsIThread**)(&mainThread));
+    if(NS_GetCurrentThread() == mainThread && !isSystem){
+        set_synchronize(false);
+        this->expTime = get_counter((void*)mDocument) + 1000;
+        this->key = (void*)mDocument;
+        //request->expTime = get_counter((void*)mDocument) + 100;
+        //request->key = (void*)key;
+        mainThread->putFlag(this->expTime);
+        printf("set expTime: %d, %ld\n", mDocument, this->expTime);
+    }
+    isSystem = true;
+    //_MODIFY
+
   // We need a document to evaluate scripts.
   NS_ENSURE_TRUE(mDocument, false);
 
@@ -1448,6 +1469,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
   // Step 14. in the HTML5 spec
   nsresult rv = NS_OK;
   RefPtr<nsScriptLoadRequest> request;
+
   if (aElement->GetScriptExternal()) {
     // external script
     nsCOMPtr<nsIURI> scriptURI = aElement->GetScriptURI();
@@ -1527,6 +1549,21 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       }
     }
 
+    //_MODIFY
+    /*nsThread* mainThread;
+    NS_GetMainThread((nsIThread**)(&mainThread));
+    if(NS_GetCurrentThread() == mainThread && !isSystem){
+      set_synchronize(false);
+      this->expTime = get_counter((void*)mDocument) + 100;
+      this->key = (void*)mDocument;
+      request->expTime = get_counter((void*)mDocument) + 100;
+      request->key = (void*)key;
+      mainThread->putFlag(this->expTime);
+      printf("set expTime: %d, %ld\n", mDocument, request->expTime);
+    }
+    isSystem = true;*/
+    //_MODIFY
+
     // Should still be in loading stage of script.
     NS_ASSERTION(!request->InCompilingStage(),
                  "Request should not yet be in compiling stage.");
@@ -1548,6 +1585,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       }
       return false;
     }
+
     if (!aElement->GetParserCreated() && !request->IsModuleRequest()) {
       // Violate the HTML5 spec in order to make LABjs and the "order" plug-in
       // for RequireJS work with their Gecko-sniffed code path. See
@@ -1561,6 +1599,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       }
       return false;
     }
+
     // we now have a parser-inserted request that may or may not be still
     // loading
     if (aElement->GetScriptDeferred() || request->IsModuleRequest()) {
@@ -1677,6 +1716,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
         "Parser-blocking scripts and XSLT scripts in the same doc!");
     return true;
   }
+
   // We now have a document.written inline script or we have an inline script
   // from the network but there is no style sheet that is blocking scripts.
   // Don't check for style sheets blocking scripts in the document.write
@@ -1788,6 +1828,7 @@ OffThreadScriptLoaderCallback(void *aToken, void *aCallbackData)
   RefPtr<NotifyOffThreadScriptLoadCompletedRunnable> aRunnable =
     dont_AddRef(static_cast<NotifyOffThreadScriptLoadCompletedRunnable*>(aCallbackData));
   aRunnable->SetToken(aToken);
+
   NS_DispatchToMainThread(aRunnable);
 }
 
@@ -1825,6 +1866,7 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
     new NotifyOffThreadScriptLoadCompletedRunnable(aRequest, this);
 
   if (aRequest->IsModuleRequest()) {
+
     if (!JS::CompileOffThreadModule(cx, options,
                                     aRequest->mScriptTextBuf, aRequest->mScriptTextLength,
                                     OffThreadScriptLoaderCallback,
@@ -1844,6 +1886,22 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
   aRequest->mProgress = nsScriptLoadRequest::Progress::Compiling;
 
   Unused << runnable.forget();
+
+
+  //_MODIFY
+  nsThread* mainThread;
+  printf("pass:%d\n", aRequest->key);
+  NS_GetMainThread((nsIThread**)(&mainThread));
+  //if(this->expTime < 0 || this->expTime > get_counter() + 1000)this->expTime = get_counter();
+  if(cross_origin){
+    mainThread->expTime = getPhysicalTime();
+    mainThread->key = this->key;
+    cross_origin = false;
+  }else{
+    mainThread->expTime = this->expTime;
+    mainThread->key = this->key;
+  }
+  //_MODIFY
   return NS_OK;
 }
 
@@ -2151,6 +2209,9 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest)
         rv = nsJSUtils::ModuleEvaluation(aes.cx(), module);
       }
     } else {
+        //_MODIFY
+        set_inckey((void*)ownerDoc);
+        //_MODIFY
       JS::CompileOptions options(aes.cx());
       FillCompileOptionsForRequest(aes, aRequest, global, &options);
 

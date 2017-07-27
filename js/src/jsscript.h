@@ -29,6 +29,10 @@
 #include "vm/Shape.h"
 #include "vm/SharedImmutableStringsCache.h"
 
+//@MODIFY
+#include "vm/Counter.h"
+//@MODIFY
+
 namespace JS {
 struct ScriptSourceInfo;
 } // namespace JS
@@ -745,6 +749,10 @@ class JSScript : public js::gc::TenuredCell
                                    comment above Create() for details) */
 
     JSCompartment*  compartment_;
+
+    //@MODIFY
+    uint32_t mCodeCount;
+    //@MODIFy
 
   private:
     /* Persistent type information retained across GCs. */

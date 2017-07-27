@@ -177,6 +177,11 @@ public:
   const mozilla::CORSMode mCORSMode;
   const mozilla::dom::SRIMetadata mIntegrity;
   mozilla::net::ReferrerPolicy mReferrerPolicy;
+
+  //_MODIFY
+  uint64_t expTime;
+  void* key;
+  //_MODIFY
 };
 
 class nsScriptLoadRequestList : private mozilla::LinkedList<nsScriptLoadRequest>
@@ -256,6 +261,11 @@ class nsScriptLoader final : public nsISupports
 public:
   explicit nsScriptLoader(nsIDocument* aDocument);
 
+  //_MODIFY
+  uint64_t expTime;
+  void* key;
+  //_MODIFY
+
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS(nsScriptLoader)
 
@@ -291,7 +301,7 @@ public:
   }
 
   /**
-   * Process a script element. This will include both loading the 
+   * Process a script element. This will include both loading the
    * source of the element if it is not inline and evaluating
    * the script itself.
    *
@@ -324,7 +334,7 @@ public:
 
   /**
    * Whether the loader is enabled or not.
-   * When disabled, processing of new script elements is disabled. 
+   * When disabled, processing of new script elements is disabled.
    * Any call to ProcessScriptElement() will return false. Note that
    * this DOES NOT disable currently loading or executing scripts.
    */

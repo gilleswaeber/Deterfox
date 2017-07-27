@@ -37,6 +37,26 @@
 #include "nsThreadSyncDispatch.h"
 #include "LeakRefPtr.h"
 
+//_MODIFY BEGIN 10/03/2016
+#include "nsFocusManager.h"
+#include "nsThreadUtils.h"
+#include "../../js/src/vm/Counter.h"
+#include "../../docshell/base/nsDocShell.h"
+#include "../../dom/events/Event.h"
+#include <typeinfo>
+#include <ctime>
+#include <unistd.h>
+#include <thread>
+#include <string.h>
+#include "nsThreadUtils.h"
+
+#ifdef WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+//_MODIFY END
+
 #ifdef MOZ_CRASHREPORTER
 #include "nsServiceManagerUtils.h"
 #include "nsICrashReporter.h"
@@ -596,7 +616,10 @@ nsThread::nsThread(MainThreadFlag aMainThread, uint32_t aStackSize)
   , mShutdownRequired(false)
   , mEventsAreDoomed(false)
   , mIsMainThread(aMainThread)
+  , mFlagLock("nsThread.mFlagLock")
 {
+  /*Only main thread uses priority queue*/
+  mEventsRoot.setIsMain(mIsMainThread == MAIN_THREAD);
 }
 
 nsThread::~nsThread()
@@ -665,6 +688,80 @@ nsThread::PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget)
   return PutEvent(event.forget(), aTarget);
 }
 
+//_MODIFY BEGIN 10/21/2016
+nsresult
+nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aTarget, uint64_t expTime)
+{
+  //MessageLoop* ml = MessageLoop::current();
+  // We want to leak the reference when we fail to dispatch it, so that
+  // we won't release the event in a wrong thread.
+  /*if(expTime - get_counter() > 1000){
+    expTime = get_counter();
+  }*/
+  LeakRefPtr<nsIRunnable> event(Move(aEvent));
+  nsCOMPtr<nsIThreadObserver> obs;
+
+  {
+    MutexAutoLock lock(mLock);
+    nsChainedEventQueue* queue = aTarget ? aTarget->mQueue : &mEventsRoot;
+    if (!queue || (queue == &mEventsRoot && mEventsAreDoomed)) {
+      NS_WARNING("An event was posted to a thread that will never run it (rejected)");
+      return NS_ERROR_UNEXPECTED;
+    }
+
+    nsIThread* thread;
+    NS_GetMainThread(&thread);
+    nsThread* mainThread = ((nsThread*) thread);
+    nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+    bool put = true;
+
+    //Non main thread push event into main thread
+    if(!NS_IsMainThread() && mIsMainThread == MAIN_THREAD){
+      //If the event is created by main thread,
+      //it should releases the current lock or
+      //replaces its flag in queue or
+      //simply be pushed into queue(if its flag has been already pop)
+      if(getFlag() && flagExpTime == expTime){
+        flagEvent = event.get();
+        setFlag(false);
+      }
+
+      //Check if there is flag in queue. If there is flag, replace it, else directly enter the queue
+      else{
+        bool r = queue->SecSwapRunnable(event.get(), expTime, lock);
+      }
+      put = false;
+    }
+    //main thread push event to itself
+    else if(NS_IsMainThread() && mIsMainThread == MAIN_THREAD){
+    }
+    // If main thread create an event and push to an non main thread, the event's expTime is created and passed to target thread
+    else if(NS_IsMainThread() && mIsMainThread != MAIN_THREAD){
+      //currentThread->putFlag(expTime);
+    }
+    //Non main thread push event to non main thread, just pass the expTime
+    else{
+    }
+
+    keyMap[(void*)event.get()] = this->key;
+    this->key = (void*)1;
+
+    if(put)queue->PutEvent(event.take(), lock, expTime, false);
+
+    // Make sure to grab the observer before dropping the lock, otherwise the
+    // event that we just placed into the queue could run and eventually delete
+    // this nsThread before the calling thread is scheduled again. We would then
+    // crash while trying to access a dead nsThread.
+    obs = mObserver;
+  }
+
+  if (obs) {
+    obs->OnDispatchedEvent(this);
+  }
+  return NS_OK;
+}
+//_MODIFY END
+
 nsresult
 nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aTarget)
 {
@@ -680,7 +777,74 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
       NS_WARNING("An event was posted to a thread that will never run it (rejected)");
       return NS_ERROR_UNEXPECTED;
     }
-    queue->PutEvent(event.take(), lock);
+
+    //_MODIFY BEGIN 10/21/2016
+
+    uint64_t temExpTime = get_counter(this->key);
+    nsIThread* thread;
+    NS_GetMainThread(&thread);
+    nsThread* mainThread = ((nsThread*) thread);
+    nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+    const char *threadName = PR_GetThreadName(PR_GetCurrentThread());
+    bool put = true;
+    
+
+    if(!mName.empty() && mName == "Socket Thread" && NS_IsMainThread()){
+      set_synchronize(false, this->key);
+      temExpTime = get_counter(this->key) + 1000;
+    }
+
+    if(!currentThread->mName.empty() && currentThread->mName == "Socket Thread" && mIsMainThread == MAIN_THREAD){
+      temExpTime = currentThread->expTime;
+    }
+
+    //Non main thread push event into main thread
+    if(!NS_IsMainThread() && mIsMainThread == MAIN_THREAD){
+      //If the event is created by main thread,
+      //it should releases the current lock or
+      //replaces its flag in queue or
+      //simply be pushed into queue(if its flag has been already pop)
+      if(this->expTime > temExpTime){
+        if(getFlag() && flagExpTime == this->expTime){
+          flagEvent = event.get();
+          setFlag(false);
+        }
+
+        //Check if there is flag in queue. If there is flag, replace it, else directly enter the queue
+        else{
+          bool r = queue->SecSwapRunnable(event.get(), this->expTime, lock);
+        }
+        put = false;
+        this->expTime = 0;
+      }
+    }
+    //main thread push event to itself
+    /*else if(NS_IsMainThread() && mIsMainThread == MAIN_THREAD){
+    }
+    // If main thread create an event and push to an non main thread, the event's expTime is created and passed to target thread
+    else if(NS_IsMainThread() && mIsMainThread != MAIN_THREAD){
+      //if(!isSystem){
+        //temExpTime = get_counter() + 100;
+        //isSystem = true;
+      //}
+      //else{
+      //  temExpTime = get_counter();
+      //}
+      //putFlag(temExpTime);
+    }
+    //Non main thread push event to non main thread, just pass the expTime
+    else{
+      temExpTime = currentThread->expTime;
+    }*/
+
+    if(this->key != (void*)1)printf("map: %d, %d\n", event.get(), this->key);
+    keyMap[(void*)event.get()] = this->key;
+    set_synchronize(false, this->key);
+    this->key = (void*)1;
+    if(put)queue->PutEvent(event.take(), lock, temExpTime, false);
+
+    //queue->PutEvent(event.take(), lock);
+    //_MODIFY END
 
     // Make sure to grab the observer before dropping the lock, otherwise the
     // event that we just placed into the queue could run and eventually delete
@@ -692,8 +856,80 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
   if (obs) {
     obs->OnDispatchedEvent(this);
   }
-
   return NS_OK;
+}
+
+//_MODIFY BEGIN 10/22/2016
+void nsThread::putFlag(uint64_t expTime){
+  //if(mIsMainThread != MAIN_THREAD || expTime < 0 || expTime - get_counter() > 1000)return;
+  MutexAutoLock lock(mLock);
+  nsIRunnable* flagEvent = new Runnable();
+  this->mEventsRoot.PutEvent(flagEvent, lock, expTime, true);
+}
+//_MODIFY
+
+nsresult
+nsThread::DispatchInternal(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags,
+                           nsNestedEventTarget* aTarget, uint64_t exptime)
+{
+  // We want to leak the reference when we fail to dispatch it, so that
+  // we won't release the event in a wrong thread.
+  LeakRefPtr<nsIRunnable> event(Move(aEvent));
+  if (NS_WARN_IF(!event)) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  if (gXPCOMThreadsShutDown && MAIN_THREAD != mIsMainThread && !aTarget) {
+    NS_ASSERTION(false, "Failed Dispatch after xpcom-shutdown-threads");
+    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
+  }
+
+#ifdef MOZ_TASK_TRACER
+  nsCOMPtr<nsIRunnable> tracedRunnable = CreateTracedRunnable(event.take());
+  (static_cast<TracedRunnable*>(tracedRunnable.get()))->DispatchTask();
+  // XXX tracedRunnable will always leaked when we fail to disptch.
+  event = tracedRunnable.forget();
+#endif
+
+  if (aFlags & DISPATCH_SYNC) {
+    nsThread* thread = nsThreadManager::get().GetCurrentThread();
+    if (NS_WARN_IF(!thread)) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+
+    // XXX we should be able to do something better here... we should
+    //     be able to monitor the slot occupied by this event and use
+    //     that to tell us when the event has been processed.
+
+    RefPtr<nsThreadSyncDispatch> wrapper =
+      new nsThreadSyncDispatch(thread, event.take());
+    nsresult rv = PutEvent(wrapper, aTarget); // hold a ref
+    // Don't wait for the event to finish if we didn't dispatch it...
+    if (NS_FAILED(rv)) {
+      // PutEvent leaked the wrapper runnable object on failure, so we
+      // explicitly release this object once for that. Note that this
+      // object will be released again soon because it exits the scope.
+      wrapper.get()->Release();
+      return rv;
+    }
+
+    // Allows waiting; ensure no locks are held that would deadlock us!
+    while (wrapper->IsPending()) {
+      NS_ProcessNextEvent(thread, true);
+    }
+    return NS_OK;
+  }
+
+  NS_ASSERTION(aFlags == NS_DISPATCH_NORMAL, "unexpected dispatch flags");
+  return PutEvent(event.take(), aTarget, exptime);
+}
+
+NS_IMETHODIMP
+nsThread::Dispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags, uint64_t expTime)
+{
+  LOG(("THRD(%p) Dispatch [%p %x]\n", this, /* XXX aEvent */nullptr, aFlags));
+
+  return DispatchInternal(Move(aEvent), aFlags, nullptr, expTime);
 }
 
 nsresult
@@ -766,6 +1002,14 @@ NS_IMETHODIMP
 nsThread::Dispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags)
 {
   LOG(("THRD(%p) Dispatch [%p %x]\n", this, /* XXX aEvent */nullptr, aFlags));
+
+  //_MODIFY
+  if(targetExpTime > 0){
+    uint64_t temTime = targetExpTime;
+    targetExpTime = 0;
+    return DispatchInternal(Move(aEvent), aFlags, nullptr, temTime);
+  }
+  //_MODIFY
 
   return DispatchInternal(Move(aEvent), aFlags, nullptr);
 }
@@ -994,6 +1238,17 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
   LOG(("THRD(%p) ProcessNextEvent [%u %u]\n", this, aMayWait,
        mNestedEventLoopDepth));
 
+  //_MODIFY
+  if(mName.empty()){
+    const char* tmpcc =  PR_GetThreadName(PR_GetCurrentThread());
+    char* tmpc = (char*)tmpcc;
+    while(tmpc && *tmpc){
+      mName += *tmpc;
+      tmpc++;
+    }
+  }
+  //_MODIFY
+
   if (NS_WARN_IF(PR_GetCurrentThread() != mThread)) {
     return NS_ERROR_NOT_SAME_THREAD;
   }
@@ -1042,10 +1297,19 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
     // also do work.
 
     // If we are shutting down, then do not wait for new events.
+
+    uint64_t* temExpTime=(uint64_t*) malloc(sizeof(uint64_t));
+    bool* isFlag = (bool*) malloc(sizeof(bool));
+
     nsCOMPtr<nsIRunnable> event;
     {
       MutexAutoLock lock(mLock);
-      mEvents->GetEvent(reallyWait, getter_AddRefs(event), lock);
+      //mEvents->GetEvent(reallyWait, getter_AddRefs(event), lock);
+
+      //_MODIFY
+      mEvents->GetEvent(reallyWait, getter_AddRefs(event), lock, temExpTime, isFlag);
+      //_MODIFY
+
     }
 
     *aResult = (event.get() != nullptr);
@@ -1055,7 +1319,93 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
       if (MAIN_THREAD == mIsMainThread) {
         HangMonitor::NotifyActivity();
       }
-      event->Run();
+
+      //_MODIFY
+
+      nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+      const char *threadName = PR_GetThreadName(PR_GetCurrentThread());
+
+      this->expTime = *temExpTime;
+
+      if(!mName.empty() && mName == "Socket Thread"){
+
+      }
+
+      bool run = true;
+
+      if (MAIN_THREAD == mIsMainThread) {
+
+        struct timeval tp;
+        uint64_t physical_time;
+        gettimeofday(&tp, NULL);
+
+        /*physical_time = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+        physical_time -= getPhysicalBase();
+        physical_time *= 1000;
+        uint64_t current_time = get_counter();
+        if(get_synchronize() && physical_time < current_time && current_time - physical_time < 1e6){
+          #ifdef WIN32
+          Sleep((current_time - physical_time) / 1000);
+          #else
+          usleep(current_time - physical_time);
+          #endif // win32
+        }*/
+
+        //main thread need to block itself when it gets a flag from priority queue
+        if(*isFlag){
+          run = false;
+            setFlag(true);
+            flagExpTime = *temExpTime;
+
+            int i=0;
+            bool isBreak = false;
+            while(getFlag()){
+              if(i++ > 1e6){
+                isBreak = true;
+                flagEvent = NULL;
+                setFlag(false);
+              }
+            }
+
+            if(!isBreak){
+              //reset the counter before run the event
+              run = true;
+              //Event* temevent = (void*) event;
+              void* event_key = keyMap[(void*)event.get()];
+              if(event_key == 0)event_key = (void*)1;;
+              set_synchronize(false, event_key);
+              if(event_key != (void*)1)printf("set: %d, %d, %ld\n", event.get(), event_key, *temExpTime);
+              set_counter(*temExpTime, event_key);
+              event = flagEvent;
+            }
+            else{
+              run = false;
+            }
+        }
+        else{
+          void* event_key = keyMap[(void*)event.get()];
+          if(event_key == 0)event_key = (void*)1;
+          set_synchronize(false, event_key);
+          set_counter(*temExpTime, event_key);
+          if(event_key != (void*)1)printf("set: %d, %d\n", event.get(), event_key);
+          physical_time = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+          physical_time -= getPhysicalBase();
+          physical_time *= 1000;
+          uint64_t current_time = get_counter(event_key);
+          if(get_synchronize(event_key) && physical_time < current_time && current_time - physical_time < 1e6){
+#ifdef WIN32
+              Sleep((current_time - physical_time) / 1000);
+#else
+              usleep(current_time - physical_time);
+#endif // win32
+          }
+
+        }
+      }
+
+      if(run)event->Run();
+      //_MODIFY
+
     } else if (aMayWait) {
       MOZ_ASSERT(ShuttingDown(),
                  "This should only happen when shutting down");
@@ -1209,6 +1559,7 @@ nsThread::PushEventQueue(nsIEventTarget** aResult)
 
   {
     MutexAutoLock lock(mLock);
+
     queue->mNext = mEvents;
     mEvents = queue;
   }
@@ -1340,3 +1691,20 @@ nsThread::nsNestedEventTarget::IsOnCurrentThread(bool* aResult)
 {
   return mThread->IsOnCurrentThread(aResult);
 }
+
+//_MODIFY
+bool
+nsThread::setFlag(bool aFlag)
+{
+  MutexAutoLock lock(mFlagLock);
+  flag = aFlag;
+  return flag;
+}
+
+bool
+nsThread::getFlag()
+{
+  MutexAutoLock lock(mFlagLock);
+  return flag;
+}
+//_MODIFY

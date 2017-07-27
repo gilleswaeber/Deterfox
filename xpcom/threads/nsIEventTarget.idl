@@ -18,6 +18,9 @@ interface nsIEventTarget : nsISupports
 {
   /* until we can get rid of all uses, keep the non-alreadyAddRefed<> version */
 %{C++
+    //_MODIFY
+    uint64_t targetExpTime;
+    //_MODIFY
     nsresult Dispatch(nsIRunnable* aEvent, uint32_t aFlags) {
       return Dispatch(nsCOMPtr<nsIRunnable>(aEvent).forget(), aFlags);
     }

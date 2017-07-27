@@ -19,6 +19,13 @@
 #include "nsAutoPtr.h"
 #include "mozilla/AlreadyAddRefed.h"
 
+#include <set>
+#include <string>
+
+//_MODIFY
+#include <map>
+//_MODIFY
+
 namespace mozilla {
 class CycleCollectedJSRuntime;
 }
@@ -38,11 +45,29 @@ public:
   NS_DECL_NSISUPPORTSPRIORITY
   using nsIEventTarget::Dispatch;
 
+  //_MODIFY BEGIN 10/21/2016
+  uint64_t expTime=0;
+
+  void* key = (void*)1;
+
+  uint64_t add=0;
+
+  uint64_t flagExpTime=0;
+
+  std::set<std::string> nameSet;
+
+  std::string mName;
+  
+  std::map<void*, void*> keyMap;
+  //_MODIFY END
+
   enum MainThreadFlag
   {
     MAIN_THREAD,
     NOT_MAIN_THREAD
   };
+
+  MainThreadFlag mIsMainThread;
 
   nsThread(MainThreadFlag aMainThread, uint32_t aStackSize);
 
@@ -80,6 +105,10 @@ public:
   void ShutdownComplete(NotNull<struct nsThreadShutdownContext*> aContext);
 
   void WaitForAllAsynchronousShutdowns();
+
+  //_MODIFY BEGIN 10/22/2016
+  void putFlag(uint64_t expTime);
+  //_MODIFY END
 
 #ifdef MOZ_CRASHREPORTER
   enum class ShouldSaveMemoryReport
@@ -123,9 +152,17 @@ protected:
   nsresult PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget);
   nsresult PutEvent(already_AddRefed<nsIRunnable> aEvent,
                     nsNestedEventTarget* aTarget);
+  nsresult PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aTarget, uint64_t expTime);
 
   nsresult DispatchInternal(already_AddRefed<nsIRunnable> aEvent,
                             uint32_t aFlags, nsNestedEventTarget* aTarget);
+
+  NS_IMETHODIMP
+    Dispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags, uint64_t expTime);
+
+  nsresult
+    DispatchInternal(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags,
+                           nsNestedEventTarget* aTarget, uint64_t exptime);
 
   struct nsThreadShutdownContext* ShutdownInternal(bool aSync);
 
@@ -138,6 +175,40 @@ protected:
       , mQueue(aLock)
     {
     }
+
+    //_MODIFY BEGIN 10/17/2016
+    bool GetEvent(bool aMayWait, nsIRunnable** aEvent,
+                  mozilla::MutexAutoLock& aProofOfLock, uint64_t* expectedEndTime, bool* isFlag)
+    {
+      bool result = mQueue.GetEvent(aMayWait, aEvent, aProofOfLock, expectedEndTime);
+      *isFlag = (*expectedEndTime & 1) == 1;
+      *expectedEndTime = *expectedEndTime >> 1;
+      return result;
+    }
+
+    void PutEvent(nsIRunnable* aEvent, mozilla::MutexAutoLock& aProofOfLock, uint64_t expectedEndTime, bool isFlag)
+    {
+      if(isFlag)expectedEndTime = expectedEndTime << 1 | 1;
+      else expectedEndTime = (expectedEndTime << 1);
+      mQueue.PutEvent(aEvent, aProofOfLock, expectedEndTime);
+    }
+
+    void PutEvent(already_AddRefed<nsIRunnable> aEvent,
+                  mozilla::MutexAutoLock& aProofOfLock, uint64_t expectedEndTime, bool isFlag)
+    {
+      if(isFlag)expectedEndTime = (expectedEndTime << 1) + 1;
+      else expectedEndTime = (expectedEndTime << 1);
+      mQueue.PutEvent(mozilla::Move(aEvent), aProofOfLock,expectedEndTime);
+    }
+
+    bool SecSwapRunnable(nsIRunnable* runnable, uint64_t expTime, mozilla::MutexAutoLock& aProofOfLock){
+      return mQueue.SecSwapRunnable(runnable, expTime, aProofOfLock);
+    }
+
+    bool setIsMain(bool aIsMain) {
+      return mQueue.setIsMain(aIsMain);
+    }
+    //_MODIFY END
 
     bool GetEvent(bool aMayWait, nsIRunnable** aEvent,
                   mozilla::MutexAutoLock& aProofOfLock)
@@ -199,6 +270,17 @@ protected:
   // on mEvents, we have to hold the lock to synchronize with PopEventQueue.
   mozilla::Mutex mLock;
 
+  //_MODIFY BEGIN 10/23/2016
+  mozilla::Mutex mFlagLock;
+  bool flag=false;
+
+  bool setFlag(bool aFlag);
+
+  bool getFlag();
+
+  nsIRunnable* flagEvent;
+  //_MODIFY END
+
   nsCOMPtr<nsIThreadObserver> mObserver;
   mozilla::CycleCollectedJSRuntime* mScriptObserver;
 
@@ -221,7 +303,7 @@ protected:
   bool mShutdownRequired;
   // Set to true when events posted to this thread will never run.
   bool mEventsAreDoomed;
-  MainThreadFlag mIsMainThread;
+  //MainThreadFlag mIsMainThread;
 };
 
 #if defined(XP_UNIX) && !defined(ANDROID) && !defined(DEBUG) && HAVE_UALARM \

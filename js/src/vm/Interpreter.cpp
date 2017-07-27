@@ -57,8 +57,115 @@
 #include "vm/Probes-inl.h"
 #include "vm/Stack-inl.h"
 
+//_MODIFY include counter.h
+#include <ctime>
+#include "Counter.h"
+#include <sys/time.h>
+#include <map>
+#include <thread>
+//_MODIFY
+
 using namespace js;
 using namespace js::gc;
+
+//_MODIFY
+volatile uint64_t counter = 0;
+
+std::map<void*, volatile uint64_t> mapCounter;
+
+std::map<void*, volatile bool> mapSynchronize;
+
+bool isSystem = true;
+
+bool cross_origin = false;
+
+volatile uint64_t physical_base = 0;
+
+bool inc_flag;
+
+void* inc_key = (void*)1;
+
+void inc_counter(uint64_t args, void* key) {
+    if(key == NULL)key = (void*)1;
+    if(physical_base == 0){
+      struct timeval tp;
+      gettimeofday(&tp, NULL);
+      physical_base = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    }
+    uint64_t c = (uint64_t)args;
+    std::map<void*, volatile uint64_t>::iterator it;
+    for(it = mapCounter.begin(); it != mapCounter.end(); it++){
+      mapCounter[it->first] += c;
+    }
+    /*it = mapCounter.find(inc_key);
+    if(it == mapCounter.end()){
+        if(key == (void*)1)mapCounter[inc_key] = 0;
+        else mapCounter[inc_key] = mapCounter[(void*)1];
+    }
+    mapCounter[inc_key] += c;*/
+
+    JS_COUNTER_LOG("counter %i inc %i", counter, c);
+}
+
+uint64_t get_counter(void* key) {
+    JS_COUNTER_LOG("counter : %i", __FUNCTION__, counter);
+    if(key == NULL)key = (void*)1;
+    std::map<void*, volatile uint64_t>::iterator it;
+    it = mapCounter.find(key);
+    if(it == mapCounter.end()){
+        if(key == (void*)1)mapCounter[key] = 0;
+        else mapCounter[key] = mapCounter[(void*)1];
+    }
+    return mapCounter[key];
+}
+
+bool set_counter(uint64_t time, void* key) {
+    JS_COUNTER_LOG("counter : %i", __FUNCTION__, time);
+    //counter=time;
+    if(key == NULL)key = (void*)1;
+    uint64_t current = get_counter(key);
+    if(time <= current)return false;
+    if(key != (void*)1)printf("set_counter: %d, %ld, %ld\n", key, time, current);
+    mapCounter[key] = time;
+    return true;
+}
+
+uint64_t get_scaled_counter(uint64_t args) {
+    return counter/args;
+}
+
+uint64_t getPhysicalBase(){
+    return physical_base;
+}
+
+uint64_t getPhysicalTime(){
+    if(physical_base == 0)return counter;
+    struct timeval tp;
+    uint64_t physical_time;
+    gettimeofday(&tp, NULL);
+    physical_time = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    physical_time -= physical_base;
+    physical_time *= 1000;
+    return physical_time;
+}
+
+void set_synchronize(bool flag, void* key){
+    if(key == NULL)return;
+    mapSynchronize[key] = flag;
+}
+
+bool get_synchronize(void* key){
+    if(key == NULL)return true;
+    std::map<void*, volatile bool>::iterator it;
+    it = mapSynchronize.find(key);
+    if(it == mapSynchronize.end())mapSynchronize[key] = true;
+    return mapSynchronize[key];
+}
+
+void set_inckey(void* key){
+    inc_key = key;
+}
+//_MODIFY
 
 using mozilla::ArrayLength;
 using mozilla::DebugOnly;
@@ -373,20 +480,39 @@ js::RunScript(JSContext* cx, RunState& state)
     state.script()->ensureNonLazyCanonicalFunction(cx);
 
     if (jit::IsIonEnabled(cx)) {
+
         jit::MethodStatus status = jit::CanEnter(cx, state);
         if (status == jit::Method_Error)
             return false;
         if (status == jit::Method_Compiled) {
+
+     //_MODIFY
+     //printf("Ion enable %d\n", state.script()->mCodeCount);
+    if(state.script()->mCodeCount > 0){
+        //printf("Ion increase %d %d\n", state.script()->mCodeCount, get_counter());
+        inc_counter(state.script()->mCodeCount);
+        //printf("after %d\n", get_counter());
+    }else inc_counter(10);
+    //_MODIFY
+
             jit::JitExecStatus status = jit::IonCannon(cx, state);
             return !IsErrorStatus(status);
         }
     }
 
     if (jit::IsBaselineEnabled(cx)) {
+
         jit::MethodStatus status = jit::CanEnterBaselineMethod(cx, state);
         if (status == jit::Method_Error)
             return false;
         if (status == jit::Method_Compiled) {
+
+     //_MODIFY
+    if(state.script()->mCodeCount > 0){
+        inc_counter(state.script()->mCodeCount);
+    }else inc_counter(10);
+    //_MODIFY
+
             jit::JitExecStatus status = jit::EnterBaselineMethod(cx, state);
             return !IsErrorStatus(status);
         }
@@ -396,6 +522,26 @@ js::RunScript(JSContext* cx, RunState& state)
         InvokeState& invoke = *state.asInvoke();
         TypeMonitorCall(cx, invoke.args(), invoke.constructing());
     }
+
+    //_MODIFY
+
+    jsbytecode* pc;
+    JSScript* script = cx->currentScript(&pc);
+    isSystem = false;
+    if (script!=NULL){
+        if (script->scriptSource()->hasSourceData()) {
+          JSString* srcJS= script->sourceData(cx);
+          /*const char * filename = script->filename();
+          printf("thread %lx, file: %s\n", pthread_self(), script->filename());
+          if (strstr(filename, "chrome://")!=NULL || strstr(filename, "resource://")!=NULL)
+            isSystem = true;
+          else
+            isSystem = false;*/
+          //if (srcJS)printf("thread %lx, isSystem: %d, code: %s\n", pthread_self(), isSystem,  srcJS);
+        }
+    }
+
+    //_MODIFY
 
     return Interpret(cx, state);
 }
@@ -1639,12 +1785,17 @@ Interpret(JSContext* cx, RunState& state)
      * will enable interrupts, and activation.opMask() is or'd with the opcode
      * to implement a simple alternate dispatch.
      */
+
+//_MODIFY BEGIN 10/21/2016
 #define ADVANCE_AND_DISPATCH(N)                                               \
     JS_BEGIN_MACRO                                                            \
+        const char * filename = script->filename();\
+        if(strstr(filename,"http:") != NULL || strstr(filename,"https:") != NULL)inc_counter(1);\
         REGS.pc += (N);                                                       \
         SANITY_CHECKS();                                                      \
         DISPATCH_TO(*REGS.pc | activation.opMask());                          \
     JS_END_MACRO
+//_MODIFY END
 
    /*
     * Shorthand for the common sequence at the end of a fixed-size opcode.
@@ -1679,6 +1830,19 @@ Interpret(JSContext* cx, RunState& state)
      */
 #define INIT_COVERAGE()                                                       \
     JS_BEGIN_MACRO                                                            \
+          const char * filename = script->filename();                         \
+          isSystem = true;                                                    \
+          if(script->scriptSource()->hasSourceData()){\
+            JSString* srcJS= script->sourceData(cx);\
+            if(srcJS){\
+              char* code = JS_EncodeString(cx,srcJS);\
+              if(strstr(code, "Looks like we have been called off a timeout")!=NULL){\
+                inc_flag = false;\
+              }\
+            }\
+          }\
+          if (strstr(filename, "http://")!=NULL || strstr(filename, "https://")!=NULL){\
+            isSystem = false;}                                                \
         if (!script->hasScriptCounts()) {                                     \
             if (cx->compartment()->collectCoverageForDebug()) {               \
                 if (!script->initScriptCounts(cx))                            \
@@ -2888,6 +3052,9 @@ CASE(JSOP_CALLITER)
 CASE(JSOP_SUPERCALL)
 CASE(JSOP_FUNCALL)
 {
+    //set_counter(get_counter() + 100);
+    //printf("callfunc %d, %x\n",get_counter(),pthread_self());
+
     if (REGS.fp()->hasPushedSPSFrame())
         cx->runtime()->spsProfiler.updatePC(script, REGS.pc);
 

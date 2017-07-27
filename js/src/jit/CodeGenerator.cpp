@@ -5057,6 +5057,7 @@ CodeGenerator::emitDebugForceBailing(LInstruction* lir)
 bool
 CodeGenerator::generateBody()
 {
+
     IonScriptCounts* counts = maybeCreateScriptCounts();
 
 #if defined(JS_ION_PERF)
@@ -5073,6 +5074,20 @@ CodeGenerator::generateBody()
         // putting any instructions in them, we can skip them.
         if (current->isTrivial())
             continue;
+
+        //_MODIFY
+        const char* filename = nullptr;
+        size_t lineNumber = 0;
+        unsigned columnNumber = 0;
+        if (current->mir()->info().script()) {
+            filename = current->mir()->info().script()->filename();
+            if (current->mir()->pc()){
+                lineNumber = PCToLineNumber(current->mir()->info().script(), current->mir()->pc(),
+                                            &columnNumber);
+                //if(strstr(filename,"http:") != NULL) printf("lineNumber %s %d %d %d\n", filename, lineNumber, current->mir()->info().script()->column(),columnNumber);
+            }
+        }
+        //_MODIFY
 
 #ifdef JS_JITSPEW
         const char* filename = nullptr;
@@ -5106,10 +5121,19 @@ CodeGenerator::generateBody()
 #if defined(JS_ION_PERF)
         perfSpewer->startBasicBlock(current->mir(), masm);
 #endif
+        //_MODIFY
+        int codeCount = 0;
+        //_MODIFY
 
         for (LInstructionIterator iter = current->begin(); iter != current->end(); iter++) {
             if (!alloc().ensureBallast())
                 return false;
+
+            //_MODIFY
+            codeCount++;
+
+            //printf("instruction %s\n", iter->opName());
+            //_MODIFY
 
 #ifdef JS_JITSPEW
             JitSpewStart(JitSpew_Codegen, "instruction %s", iter->opName());
@@ -5156,6 +5180,12 @@ CodeGenerator::generateBody()
                 emitDebugResultChecks(*iter);
 #endif
         }
+
+        //_MODIFY
+        current->mir()->info().script()->mCodeCount = codeCount;
+        //printf("Code Nmber: %d\n", codeCount);
+        //_MODIFY
+
         if (masm.oom())
             return false;
 
@@ -9198,6 +9228,7 @@ CodeGenerator::generate()
     // Initialize native code table with an entry to the start of
     // top-level script.
     InlineScriptTree* tree = gen->info().inlineScriptTree();
+    //printf("------------------generate jit %d\n", tree->script()->lineno());
     jsbytecode* startPC = tree->script()->code();
     BytecodeSite* startSite = new(gen->alloc()) BytecodeSite(tree, startPC);
     if (!addNativeToBytecodeEntry(startSite))
@@ -9277,6 +9308,8 @@ CodeGenerator::generate()
 
     // Dump Native to bytecode entries to spew.
     dumpNativeToBytecodeEntries();
+
+    //printf("end------------------generate jit %d\n", tree->script()->lineno());
 
     return !masm.oom();
 }

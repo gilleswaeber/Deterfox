@@ -69,6 +69,10 @@
 #include "nsAnimationManager.h"
 #include "nsIDOMEvent.h"
 
+//_MODIFY
+#include "../../js/src/vm/Counter.h"
+//_MODIFY
+
 using namespace mozilla;
 using namespace mozilla::widget;
 using namespace mozilla::ipc;
@@ -1525,6 +1529,7 @@ nsRefreshDriver::DispatchAnimationEvents()
 void
 nsRefreshDriver::RunFrameRequestCallbacks(TimeStamp aNowTime)
 {
+
   // Grab all of our frame request callbacks up front.
   nsTArray<DocumentFrameCallbacks>
     frameRequestCallbacks(mFrameRequestCallbackDocs.Length() +
@@ -1595,11 +1600,20 @@ nsRefreshDriver::RunFrameRequestCallbacks(TimeStamp aNowTime)
         mozilla::dom::Performance* perf = innerWindow->GetPerformance();
         if (perf) {
           timeStamp = perf->GetDOMTiming()->TimeStampToDOMHighRes(aNowTime);
+          //_MODIFY
+          //timeStamp = get_counter();
+          //_MODIFY
         }
         // else window is partially torn down already
       }
       for (auto& callback : docCallbacks.mCallbacks) {
-        callback->Call(timeStamp);
+        //_MODIFY
+        //callback->Call(timeStamp);
+        set_synchronize(false, callback->key);
+        set_counter(callback->expTime, callback->key);
+        timeStamp = callback->expTime;
+        callback->Call(callback->expTime);
+        //_MODIFY
       }
     }
     profiler_tracing("Paint", "Scripts", TRACING_INTERVAL_END);

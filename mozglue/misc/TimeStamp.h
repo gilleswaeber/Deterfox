@@ -14,6 +14,10 @@
 #include "mozilla/TypeTraits.h"
 #include "mozilla/Types.h"
 
+//_MODIFY
+#include "../../../../js/src/vm/Counter.h"
+//_MPDIFY
+
 namespace IPC {
 template<typename T> struct ParamTraits;
 } // namespace IPC
@@ -443,8 +447,16 @@ public:
    * lower precision, usually 15.6 ms, but with very good performance benefit.
    * Use it for measurements of longer times, like >200ms timeouts.
    */
-  static TimeStamp Now() { return Now(true); }
+  static TimeStamp Now() {
+      return Now(true);
+  }
   static TimeStamp NowLoRes() { return Now(false); }
+
+  //_MODIFY
+  static TimeStamp NowCounter(){
+      return TimeStamp(get_counter() * 1000000);
+  }
+  //_MODIFY
 
   /**
    * Return a timestamp representing the time when the current process was
@@ -601,6 +613,7 @@ private:
    *
    * When using a system clock, a value is system dependent.
    */
+
   TimeStampValue mValue;
 };
 

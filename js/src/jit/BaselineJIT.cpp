@@ -27,6 +27,9 @@
 #include "jit/JitFrames-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "vm/Stack-inl.h"
+//_MODIFT
+#include "../vm/Counter.h"
+//_MODIFT
 
 using mozilla::BinarySearchIf;
 using mozilla::DebugOnly;
@@ -100,6 +103,8 @@ CheckFrame(InterpreterFrame* fp)
     return true;
 }
 
+
+//_MODIFY Execute the JIT part(Baseline part)
 static JitExecStatus
 EnterBaseline(JSContext* cx, EnterJitData& data)
 {

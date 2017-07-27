@@ -58,6 +58,9 @@
 #include "vm/Debugger-inl.h"
 #include "vm/EnvironmentObject-inl.h"
 #include "vm/Stack-inl.h"
+//@MODIFY
+#include "../vm/Counter.h"
+//@MODIFY
 
 using namespace js;
 using namespace js::jit;
@@ -2806,6 +2809,7 @@ jit::CanEnterUsingFastInvoke(JSContext* cx, HandleScript script, uint32_t numAct
     return Method_Compiled;
 }
 
+//@MODIFY Execute the JIT part(Ion part)
 static JitExecStatus
 EnterIon(JSContext* cx, EnterJitData& data)
 {
@@ -2846,6 +2850,9 @@ EnterIon(JSContext* cx, EnterJitData& data)
     {
         MOZ_ASSERT(data.maxArgv[0].isObject());
         data.result = data.maxArgv[0];
+        //@MODIFY
+        inc_counter(1);
+        //@MODIFY
     }
 
     // Release temporary buffer used for OSR into Ion.
@@ -2919,10 +2926,11 @@ jit::SetEnterJitData(JSContext* cx, EnterJitData& data, RunState& state,
 
     return true;
 }
-
+//@MODIFY  return the status of JIT execution(IonCannon part)
 JitExecStatus
 jit::IonCannon(JSContext* cx, RunState& state)
 {
+
     IonScript* ion = state.script()->ionScript();
 
     EnterJitData data(cx);
@@ -2940,6 +2948,7 @@ jit::IonCannon(JSContext* cx, RunState& state)
     return status;
 }
 
+//@MODIFY return the status of JIT execution(FastInvoke part)
 JitExecStatus
 jit::FastInvoke(JSContext* cx, HandleFunction fun, CallArgs& args)
 {
@@ -2982,8 +2991,13 @@ jit::FastInvoke(JSContext* cx, HandleFunction fun, CallArgs& args)
 
     args.rval().set(result);
 
+    //@MODIFY  return the status of JIT execution(FastInvoke part) Add Counter*/
+    if (!result.isMagic()){
+        inc_counter(1);
+    }
     MOZ_ASSERT_IF(result.isMagic(), result.isMagic(JS_ION_ERROR));
     return result.isMagic() ? JitExec_Error : JitExec_Ok;
+    //@MODIFY  return the status of JIT execution(FastInvoke part) Add Counter
 }
 
 static void

@@ -33,6 +33,10 @@
 #include "nsIAppsService.h"
 #include "mozIApplication.h"
 
+//@MODIFY
+#include "../js/src/vm/Counter.h"
+//@MODIFY
+
 using namespace mozilla;
 
 static bool gIsWhitelistingTestDomains = false;
@@ -77,7 +81,7 @@ nsPrincipal::nsPrincipal()
 { }
 
 nsPrincipal::~nsPrincipal()
-{ 
+{
   // let's clear the principal within the csp to avoid a tangling pointer
   if (mCSP) {
     static_cast<nsCSPContext*>(mCSP.get())->clearLoadingPrincipal();
@@ -247,6 +251,20 @@ nsPrincipal::GetURI(nsIURI** aURI)
 bool
 nsPrincipal::MayLoadInternal(nsIURI* aURI)
 {
+  //@MODIFY
+  nsAutoCString domain;
+  aURI->GetHost(domain);
+  nsCOMPtr<nsINetUtil> util = do_GetNetUtil();
+
+  bool isFile;
+
+
+  /*printf("MayLoadInternal check local %s, %d\n", domain.get(),util && NS_SUCCEEDED(util->ProtocolHasFlags(aURI,
+                                nsIProtocolHandler::URI_IS_LOCAL_FILE,
+                                &isFile)) &&
+         isFile);*/
+  //@MODIFY
+
   // See if aURI is something like a Blob URI that is actually associated with
   // a principal.
   nsCOMPtr<nsIURIWithPrincipal> uriWithPrin = do_QueryInterface(aURI);
@@ -267,6 +285,10 @@ nsPrincipal::MayLoadInternal(nsIURI* aURI)
   if (nsScriptSecurityManager::SecurityCompareURIs(mCodebase, aURI)) {
     return true;
   }
+
+  //@MODIFY
+  cross_origin = true;
+  //@MODIFY
 
   // If strict file origin policy is in effect, local files will always fail
   // SecurityCompareURIs unless they are identical. Explicitly check file origin
@@ -335,6 +357,7 @@ nsPrincipal::SetDomain(nsIURI* aDomain)
 NS_IMETHODIMP
 nsPrincipal::GetBaseDomain(nsACString& aBaseDomain)
 {
+
   // For a file URI, we return the file path.
   if (NS_URIIsLocalFile(mCodebase)) {
     nsCOMPtr<nsIURL> url = do_QueryInterface(mCodebase);

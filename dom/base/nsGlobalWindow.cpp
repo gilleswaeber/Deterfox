@@ -10,6 +10,9 @@
 
 #include "mozilla/MemoryReporting.h"
 
+//_MODIFY
+#include "../../js/src/vm/Counter.h"
+//_MODIFY
 // Local Includes
 #include "Navigator.h"
 #include "nsContentSecurityManager.h"
@@ -5507,6 +5510,11 @@ int32_t
 nsGlobalWindow::RequestAnimationFrame(FrameRequestCallback& aCallback,
                                       ErrorResult& aError)
 {
+    //_MODIFY
+    aCallback.key = (void*)mDoc;
+    aCallback.expTime = get_counter(aCallback.key) + 1000;
+    printf("set callback: %d, %ld\n", (void*)mDoc, aCallback.expTime);
+    //_MODIFY
   MOZ_RELEASE_ASSERT(IsInnerWindow());
 
   if (!mDoc) {

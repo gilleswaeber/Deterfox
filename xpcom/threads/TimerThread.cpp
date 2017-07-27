@@ -20,6 +20,11 @@
 
 #include <math.h>
 
+//@MODIFY
+#include "../../js/src/vm/Counter.h"
+#include "nsThread.h"
+//@MODIFY
+
 using namespace mozilla;
 #ifdef MOZ_TASK_TRACER
 #include "GeckoTaskTracerImpl.h"
@@ -565,6 +570,17 @@ TimerThread::Run()
 nsresult
 TimerThread::AddTimer(nsTimerImpl* aTimer)
 {
+  //@MODIFY
+  nsThread* mainThread;
+  NS_GetMainThread((nsIThread**)(&mainThread));
+  if(NS_GetCurrentThread() == mainThread && !isSystem){
+    this->expTime = get_counter() + 100;
+    mainThread->putFlag(this->expTime);
+    //printf("set expTime %d,%d,%d, %d\n", expTime, aTimer->mDelay,aTimer->mType,aTimer->mGeneration);
+  }
+  isSystem = true;
+  //@MODIFY
+
   MonitorAutoLock lock(mMonitor);
 
   // Add the timer to our list.
@@ -734,6 +750,13 @@ TimerThread::PostTimerEvent(already_AddRefed<nsTimerImpl> aTimerRef)
     // We release mMonitor around the Dispatch because if this timer is targeted
     // at the TimerThread we'll deadlock.
     MonitorAutoUnlock unlock(mMonitor);
+
+    //@MODIFY
+    target->targetExpTime = this->expTime;
+    //printf("set counter %d\n", target->targetExpTime);
+    this->expTime = 0;
+    //@MODIFY
+
     rv = target->Dispatch(event, NS_DISPATCH_NORMAL);
   }
 

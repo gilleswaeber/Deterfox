@@ -39,6 +39,8 @@ extern int gettimeofday(struct timeval* tv);
 
 #include <sys/time.h>
 
+#include "Counter.h"
+
 #endif /* XP_UNIX */
 
 using mozilla::DebugOnly;
@@ -47,6 +49,8 @@ using mozilla::DebugOnly;
 int64_t
 PRMJ_Now()
 {
+    //_MODIFY
+    return get_counter() * 1000;
     struct timeval tv;
 
 #ifdef _SVID_GETTOD   /* Defined only on Solaris, see Solaris <sys/types.h> */
@@ -153,6 +157,8 @@ PRMJ_NowShutdown()
 int64_t
 PRMJ_Now()
 {
+    //_MODIFY
+    return get_counter() * 1000;
     if (pGetSystemTimePreciseAsFileTime) {
         // Windows 8 has a new API function that does all the work.
         FILETIME ft;

@@ -55,6 +55,11 @@ public:
     return mThread == NS_GetCurrentThread();
   }
 
+
+  //@MODIFY
+  uint64_t expTime;
+  //@MODIFY
+
 private:
   ~TimerThread();
 
@@ -108,6 +113,7 @@ struct TimerAdditionComparator
 
 private:
   const mozilla::TimeStamp& now;
+
 #ifdef DEBUG
   const nsTimerImpl* const timerToInsert;
 #endif
