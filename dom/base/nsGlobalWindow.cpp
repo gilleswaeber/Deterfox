@@ -5513,7 +5513,6 @@ nsGlobalWindow::RequestAnimationFrame(FrameRequestCallback& aCallback,
     //_MODIFY
     aCallback.key = (void*)mDoc;
     aCallback.expTime = get_counter(aCallback.key) + 1000;
-    printf("set callback: %d, %ld\n", (void*)mDoc, aCallback.expTime);
     //_MODIFY
   MOZ_RELEASE_ASSERT(IsInnerWindow());
 

@@ -837,7 +837,6 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
       temExpTime = currentThread->expTime;
     }*/
 
-    if(this->key != (void*)1)printf("map: %d, %d\n", event.get(), this->key);
     keyMap[(void*)event.get()] = this->key;
     set_synchronize(false, this->key);
     this->key = (void*)1;
@@ -1374,7 +1373,6 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
               void* event_key = keyMap[(void*)event.get()];
               if(event_key == 0)event_key = (void*)1;;
               set_synchronize(false, event_key);
-              if(event_key != (void*)1)printf("set: %d, %d, %ld\n", event.get(), event_key, *temExpTime);
               set_counter(*temExpTime, event_key);
               event = flagEvent;
             }
@@ -1387,7 +1385,6 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
           if(event_key == 0)event_key = (void*)1;
           set_synchronize(false, event_key);
           set_counter(*temExpTime, event_key);
-          if(event_key != (void*)1)printf("set: %d, %d\n", event.get(), event_key);
           physical_time = tp.tv_sec * 1000 + tp.tv_usec / 1000;
           physical_time -= getPhysicalBase();
           physical_time *= 1000;

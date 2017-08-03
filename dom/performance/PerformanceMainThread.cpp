@@ -117,7 +117,6 @@ PerformanceMainThread::Now() const
 {
   //_MODIFY BEGIN 10/21/2016
   uint64_t time = get_counter(this->GetDocumentIfCurrent());
-  printf("performance: %d, %ld\n", this->GetDocumentIfCurrent(), time);
   set_synchronize(true, this->GetDocumentIfCurrent());
   return time;
   //_MODIFY END

@@ -125,7 +125,6 @@ bool set_counter(uint64_t time, void* key) {
     if(key == NULL)key = (void*)1;
     uint64_t current = get_counter(key);
     if(time <= current)return false;
-    if(key != (void*)1)printf("set_counter: %d, %ld, %ld\n", key, time, current);
     mapCounter[key] = time;
     return true;
 }
@@ -487,11 +486,8 @@ js::RunScript(JSContext* cx, RunState& state)
         if (status == jit::Method_Compiled) {
 
      //_MODIFY
-     //printf("Ion enable %d\n", state.script()->mCodeCount);
     if(state.script()->mCodeCount > 0){
-        //printf("Ion increase %d %d\n", state.script()->mCodeCount, get_counter());
         inc_counter(state.script()->mCodeCount);
-        //printf("after %d\n", get_counter());
     }else inc_counter(10);
     //_MODIFY
 
@@ -532,12 +528,10 @@ js::RunScript(JSContext* cx, RunState& state)
         if (script->scriptSource()->hasSourceData()) {
           JSString* srcJS= script->sourceData(cx);
           /*const char * filename = script->filename();
-          printf("thread %lx, file: %s\n", pthread_self(), script->filename());
           if (strstr(filename, "chrome://")!=NULL || strstr(filename, "resource://")!=NULL)
             isSystem = true;
           else
             isSystem = false;*/
-          //if (srcJS)printf("thread %lx, isSystem: %d, code: %s\n", pthread_self(), isSystem,  srcJS);
         }
     }
 
@@ -3053,7 +3047,6 @@ CASE(JSOP_SUPERCALL)
 CASE(JSOP_FUNCALL)
 {
     //set_counter(get_counter() + 100);
-    //printf("callfunc %d, %x\n",get_counter(),pthread_self());
 
     if (REGS.fp()->hasPushedSPSFrame())
         cx->runtime()->spsProfiler.updatePC(script, REGS.pc);

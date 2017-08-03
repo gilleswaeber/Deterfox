@@ -1403,7 +1403,6 @@ nsScriptLoader::CreateLoadRequest(nsScriptKind aKind,
 bool
 nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
 {
-    printf("ProcessScriptElement\n");
     //_MODIFY
     nsThread* mainThread;
     NS_GetMainThread((nsIThread**)(&mainThread));
@@ -1414,7 +1413,6 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
         //request->expTime = get_counter((void*)mDocument) + 100;
         //request->key = (void*)key;
         mainThread->putFlag(this->expTime);
-        printf("set expTime: %d, %ld\n", mDocument, this->expTime);
     }
     isSystem = true;
     //_MODIFY
@@ -1559,7 +1557,6 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       request->expTime = get_counter((void*)mDocument) + 100;
       request->key = (void*)key;
       mainThread->putFlag(this->expTime);
-      printf("set expTime: %d, %ld\n", mDocument, request->expTime);
     }
     isSystem = true;*/
     //_MODIFY
@@ -1890,7 +1887,6 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
 
   //_MODIFY
   nsThread* mainThread;
-  printf("pass:%d\n", aRequest->key);
   NS_GetMainThread((nsIThread**)(&mainThread));
   //if(this->expTime < 0 || this->expTime > get_counter() + 1000)this->expTime = get_counter();
   if(cross_origin){
