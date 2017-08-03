@@ -93,10 +93,7 @@ void inc_counter(uint64_t args, void* key) {
       physical_base = tp.tv_sec * 1000 + tp.tv_usec / 1000;
     }
     uint64_t c = (uint64_t)args;
-    std::map<void*, volatile uint64_t>::iterator it;
-    for(it = mapCounter.begin(); it != mapCounter.end(); it++){
-      mapCounter[it->first] += c;
-    }
+    counter += c;
     /*it = mapCounter.find(inc_key);
     if(it == mapCounter.end()){
         if(key == (void*)1)mapCounter[inc_key] = 0;
@@ -109,23 +106,12 @@ void inc_counter(uint64_t args, void* key) {
 
 uint64_t get_counter(void* key) {
     JS_COUNTER_LOG("counter : %i", __FUNCTION__, counter);
-    if(key == NULL)key = (void*)1;
-    std::map<void*, volatile uint64_t>::iterator it;
-    it = mapCounter.find(key);
-    if(it == mapCounter.end()){
-        if(key == (void*)1)mapCounter[key] = 0;
-        else mapCounter[key] = mapCounter[(void*)1];
-    }
-    return mapCounter[key];
+    return counter;
 }
 
 bool set_counter(uint64_t time, void* key) {
     JS_COUNTER_LOG("counter : %i", __FUNCTION__, time);
-    //counter=time;
-    if(key == NULL)key = (void*)1;
-    uint64_t current = get_counter(key);
-    if(time <= current)return false;
-    mapCounter[key] = time;
+    counter=time;
     return true;
 }
 
