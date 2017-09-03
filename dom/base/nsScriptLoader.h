@@ -264,6 +264,10 @@ public:
   //_MODIFY
   uint64_t expTime;
   void* key;
+  bool setExpTime = false;
+  bool cancelFlag;
+  bool cancelFlagFunc();
+  bool parsing = false;
   //_MODIFY
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS

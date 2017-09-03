@@ -22,6 +22,7 @@ extern bool cross_origin;
 void inc_counter(uint64_t args, void* key = NULL);
 uint64_t get_counter(void* key = NULL);
 bool set_counter(uint64_t time, void* key = NULL);
+bool set_counter_f(uint64_t time, void* key = NULL);
 uint64_t get_scaled_counter(uint64_t args);
 
 uint64_t getPhysicalBase();

@@ -79,6 +79,8 @@ bool isSystem = true;
 
 bool cross_origin = false;
 
+bool syn_flag = true;
+
 volatile uint64_t physical_base = 0;
 
 bool inc_flag;
@@ -106,10 +108,18 @@ void inc_counter(uint64_t args, void* key) {
 
 uint64_t get_counter(void* key) {
     JS_COUNTER_LOG("counter : %i", __FUNCTION__, counter);
+    if(counter > 1e15)counter = 0;
     return counter;
 }
 
 bool set_counter(uint64_t time, void* key) {
+    JS_COUNTER_LOG("counter : %i", __FUNCTION__, time);
+    if(time < counter)return false;
+    counter=time;
+    return true;
+}
+
+bool set_counter_f(uint64_t time, void* key) {
     JS_COUNTER_LOG("counter : %i", __FUNCTION__, time);
     counter=time;
     return true;
@@ -135,11 +145,14 @@ uint64_t getPhysicalTime(){
 }
 
 void set_synchronize(bool flag, void* key){
+    syn_flag = flag;
+    return;
     if(key == NULL)return;
     mapSynchronize[key] = flag;
 }
 
 bool get_synchronize(void* key){
+    return syn_flag;
     if(key == NULL)return true;
     std::map<void*, volatile bool>::iterator it;
     it = mapSynchronize.find(key);
@@ -474,7 +487,7 @@ js::RunScript(JSContext* cx, RunState& state)
      //_MODIFY
     if(state.script()->mCodeCount > 0){
         inc_counter(state.script()->mCodeCount);
-    }else inc_counter(10);
+    }else inc_counter(0);
     //_MODIFY
 
             jit::JitExecStatus status = jit::IonCannon(cx, state);
@@ -492,7 +505,7 @@ js::RunScript(JSContext* cx, RunState& state)
      //_MODIFY
     if(state.script()->mCodeCount > 0){
         inc_counter(state.script()->mCodeCount);
-    }else inc_counter(10);
+    }else inc_counter(0);
     //_MODIFY
 
             jit::JitExecStatus status = jit::EnterBaselineMethod(cx, state);
@@ -1770,7 +1783,7 @@ Interpret(JSContext* cx, RunState& state)
 #define ADVANCE_AND_DISPATCH(N)                                               \
     JS_BEGIN_MACRO                                                            \
         const char * filename = script->filename();\
-        if(strstr(filename,"http:") != NULL || strstr(filename,"https:") != NULL)inc_counter(1);\
+        if(strstr(filename,"http:") != NULL || strstr(filename,"https:") != NULL){ inc_counter(1);}\
         REGS.pc += (N);                                                       \
         SANITY_CHECKS();                                                      \
         DISPATCH_TO(*REGS.pc | activation.opMask());                          \
@@ -3032,7 +3045,6 @@ CASE(JSOP_CALLITER)
 CASE(JSOP_SUPERCALL)
 CASE(JSOP_FUNCALL)
 {
-    //set_counter(get_counter() + 100);
 
     if (REGS.fp()->hasPushedSPSFrame())
         cx->runtime()->spsProfiler.updatePC(script, REGS.pc);

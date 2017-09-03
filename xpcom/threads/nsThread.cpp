@@ -49,6 +49,7 @@
 #include <thread>
 #include <string.h>
 #include "nsThreadUtils.h"
+#include <queue>
 
 #ifdef WIN32
 #include <windows.h>
@@ -689,6 +690,14 @@ nsThread::PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget)
 }
 
 //_MODIFY BEGIN 10/21/2016
+
+nsresult
+nsThread::PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget, uint64_t expTime)
+{
+  nsCOMPtr<nsIRunnable> event(aEvent);
+  return PutEvent(event.forget(), aTarget, expTime);
+}
+
 nsresult
 nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aTarget, uint64_t expTime)
 {
@@ -723,7 +732,16 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
       //simply be pushed into queue(if its flag has been already pop)
       if(getFlag() && flagExpTime == expTime){
         flagEvent = event.get();
+        handleFlag = true;
         setFlag(false);
+        while(blockEventsExpTimeQueue.size() > 0){
+          //put block events back to event queu
+          this->mEventsRoot.PutEvent(blockEventsQueue.front().forget(), lock, blockEventsExpTimeQueue.front(), false);      
+          //blockEvents.erase(blockEventsExpTimeQueue.front());
+          //cancel them in block set
+          blockEventsExpTimeQueue.pop();
+          blockEventsQueue.pop();   
+        }
       }
 
       //Check if there is flag in queue. If there is flag, replace it, else directly enter the queue
@@ -791,7 +809,8 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
 
     if(!mName.empty() && mName == "Socket Thread" && NS_IsMainThread()){
       set_synchronize(false, this->key);
-      temExpTime = get_counter(this->key) + 1000;
+      //temExpTime = get_counter(this->key) + 1000;
+      temExpTime = get_counter(this->key);
     }
 
     if(!currentThread->mName.empty() && currentThread->mName == "Socket Thread" && mIsMainThread == MAIN_THREAD){
@@ -807,7 +826,7 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
       if(this->expTime > temExpTime){
         if(getFlag() && flagExpTime == this->expTime){
           flagEvent = event.get();
-          setFlag(false);
+          //setFlag(false);
         }
 
         //Check if there is flag in queue. If there is flag, replace it, else directly enter the queue
@@ -859,8 +878,9 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
 }
 
 //_MODIFY BEGIN 10/22/2016
-void nsThread::putFlag(uint64_t expTime){
+void nsThread::putFlag(uint64_t expTime, int aFlag){
   //if(mIsMainThread != MAIN_THREAD || expTime < 0 || expTime - get_counter() > 1000)return;
+if(aFlag != 1)return;
   MutexAutoLock lock(mLock);
   nsIRunnable* flagEvent = new Runnable();
   this->mEventsRoot.PutEvent(flagEvent, lock, expTime, true);
@@ -902,7 +922,7 @@ nsThread::DispatchInternal(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags
 
     RefPtr<nsThreadSyncDispatch> wrapper =
       new nsThreadSyncDispatch(thread, event.take());
-    nsresult rv = PutEvent(wrapper, aTarget); // hold a ref
+    nsresult rv = PutEvent(wrapper, aTarget, exptime); // hold a ref
     // Don't wait for the event to finish if we didn't dispatch it...
     if (NS_FAILED(rv)) {
       // PutEvent leaked the wrapper runnable object on failure, so we
@@ -1005,6 +1025,10 @@ nsThread::Dispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags)
   //_MODIFY
   if(targetExpTime > 0){
     uint64_t temTime = targetExpTime;
+nsThread* mainThread;
+  NS_GetMainThread((nsIThread**)(&mainThread));
+nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+
     targetExpTime = 0;
     return DispatchInternal(Move(aEvent), aFlags, nullptr, temTime);
   }
@@ -1237,17 +1261,6 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
   LOG(("THRD(%p) ProcessNextEvent [%u %u]\n", this, aMayWait,
        mNestedEventLoopDepth));
 
-  //_MODIFY
-  if(mName.empty()){
-    const char* tmpcc =  PR_GetThreadName(PR_GetCurrentThread());
-    char* tmpc = (char*)tmpcc;
-    while(tmpc && *tmpc){
-      mName += *tmpc;
-      tmpc++;
-    }
-  }
-  //_MODIFY
-
   if (NS_WARN_IF(PR_GetCurrentThread() != mThread)) {
     return NS_ERROR_NOT_SAME_THREAD;
   }
@@ -1323,6 +1336,9 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
 
       nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
       const char *threadName = PR_GetThreadName(PR_GetCurrentThread());
+    nsIThread* thread;
+    NS_GetMainThread(&thread);
+    nsThread* mainThread = ((nsThread*) thread);
 
       this->expTime = *temExpTime;
 
@@ -1333,6 +1349,16 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
       bool run = true;
 
       if (MAIN_THREAD == mIsMainThread) {
+        if(handleFlag){
+          MutexAutoLock lock(mLock);
+          this->mEventsRoot.PutEvent(event, lock, *temExpTime, *isFlag);
+          event = flagEvent;
+          *temExpTime = flagExpTime;
+          *isFlag = false;
+          handleFlag = false;
+          set_counter_f(*temExpTime);
+          blockEvents.clear();
+        }
 
         struct timeval tp;
         uint64_t physical_time;
@@ -1353,20 +1379,53 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
         //main thread need to block itself when it gets a flag from priority queue
         if(*isFlag){
           run = false;
-            setFlag(true);
+          if(getFlag()){
+            //std::set<uint64_t>::iterator it = cancelFlags.find(flagExpTime);
+            //if(it != cancelFlags.end()){
+            //  flagExpTime = *temExpTime;
+            //}else{
+              if(flagExpTime < get_counter()){
+                setFlag(false);
+                while(blockEventsExpTimeQueue.size() > 0){
+                  //put block events back to event queu
+                  MutexAutoLock lock(mLock);
+                  this->mEventsRoot.PutEvent(blockEventsQueue.front().forget(), lock, blockEventsExpTimeQueue.front(), false);
+                  //blockEvents.erase(blockEventsExpTimeQueue.front());
+                  //cancel them in block set
+                  blockEventsExpTimeQueue.pop();
+                  blockEventsQueue.pop();
+                }
+              }
+              else{
+                putFlag(*temExpTime, 1);
+              }
+            //}
+          }
+          else{
+            std::set<uint64_t>::iterator it = cancelFlags.find(*temExpTime);
+            if(it == cancelFlags.end()){
+              setFlag(true);
+              flagExpTime = *temExpTime;
+            }
+          }
+          /*  setFlag(true);
             flagExpTime = *temExpTime;
 
             int i=0;
             bool isBreak = false;
-            while(getFlag()){
-              if(i++ > 1e6){
+            while(i++ < 10){
+#ifdef WIN32
+              Sleep(10 / 1000);
+#else
+              usleep(10);
+#endif // win32
+              if(!getFlag()){
                 isBreak = true;
-                flagEvent = NULL;
-                setFlag(false);
+                break;
               }
             }
 
-            if(!isBreak){
+            if(isBreak){
               //reset the counter before run the event
               run = true;
               //Event* temevent = (void*) event;
@@ -1378,10 +1437,111 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
             }
             else{
               run = false;
-            }
+            }*/
         }
         else{
-          void* event_key = keyMap[(void*)event.get()];
+          if(getFlag()){
+            //std::set<uint64_t>::iterator it = cancelFlags.find(flagExpTime);
+            //if(it != cancelFlags.end()){
+            //  setFlag(false);
+            //  set_counter(*temExpTime);
+            //}else{
+              std::set<uint64_t>::iterator it = blockEvents.find(*temExpTime);
+
+              if(*temExpTime > flagExpTime && it != blockEvents.end()){
+
+
+                bool fetch = true;
+                std::queue<uint64_t> fetchExpTimes;
+                std::queue<bool> fetchFlags;
+                std::queue<nsCOMPtr<nsIRunnable> > fetchEvents;
+
+                blockEventsExpTimeQueue.push(*temExpTime);
+                blockEventsQueue.push(event);
+                blockEvents.erase(*temExpTime);
+                run = false;
+                
+                /*//fectch next runnable event
+                uint64_t* nextExpTime=(uint64_t*) malloc(sizeof(uint64_t));
+                bool* nextFlag = (bool*) malloc(sizeof(bool));
+                while(fetch){
+                  //nsCOMPtr<nsIRunnable> nextEvent;
+                  {
+                    MutexAutoLock lock(mLock);
+                    //mEvents->GetEvent(reallyWait, getter_AddRefs(nextEvent), lock, nextExpTime, nextFlag);
+                    mEvents->GetEvent(reallyWait, getter_AddRefs(event), lock, nextExpTime, nextFlag);
+                  }
+                  if(*nextExpTime == 0){
+                    //put the blocked event back
+                    while(fetchExpTimes.size() > 0){
+                      MutexAutoLock lock(mLock);
+                      this->mEventsRoot.PutEvent(fetchEvents.front().forget(), lock, fetchExpTimes.front(), fetchFlags.front());
+                      fetchEvents.pop();
+                      fetchExpTimes.pop();
+                      fetchFlags.pop();
+                    }
+                    run = false;
+                    break;
+                  }
+                  if(*nextExpTime == *temExpTime)continue;
+                  bool accept = false;
+                  
+                  if(!*nextFlag){
+                    if(*nextExpTime <= flagExpTime){
+                      accept = true;
+                      fetch = false;
+                      *temExpTime = *nextExpTime;
+                      *aResult = (event.get() != nullptr);
+                      if(!event)run = false;
+                    }else{
+                      it = blockEvents.find(*nextExpTime);
+                      if(it == blockEvents.end()){
+                        accept = true;
+                        fetch = false;
+                        *temExpTime = *nextExpTime;
+                        *aResult = (event.get() != nullptr);
+                        if(!event)run = false;
+                      }
+                    }
+                  }
+
+                  if(!accept && *nextExpTime){
+                    fetchExpTimes.push(*nextExpTime);
+                    fetchFlags.push(*nextFlag);
+                    fetchEvents.push(event);
+                  }
+                }
+
+                //put the blocked event back
+                while(fetchExpTimes.size() > 0){
+                  MutexAutoLock lock(mLock);
+                  this->mEventsRoot.PutEvent(fetchEvents.front().forget(), lock, fetchExpTimes.front(), fetchFlags.front());
+                  fetchEvents.pop();
+                  fetchExpTimes.pop();
+                  fetchFlags.pop();
+                }*/
+              }
+ 
+              if(*temExpTime == flagExpTime){
+                blockEvents.clear();
+                setFlag(false);
+                while(blockEventsExpTimeQueue.size() > 0){
+                  //put block events back to event queu
+                  MutexAutoLock lock(mLock);
+                  this->mEventsRoot.PutEvent(blockEventsQueue.front().forget(), lock, blockEventsExpTimeQueue.front(), false);
+                  //blockEvents.erase(blockEventsExpTimeQueue.front());
+                  //cancel them in block set
+                  blockEventsExpTimeQueue.pop();
+                  blockEventsQueue.pop();
+                }
+                set_counter(*temExpTime);
+              }
+            //}
+          }
+          else{
+            set_counter(*temExpTime);
+          }
+          /*void* event_key = keyMap[(void*)event.get()];
           if(event_key == 0)event_key = (void*)1;
           set_synchronize(false, event_key);
           set_counter(*temExpTime, event_key);
@@ -1395,13 +1555,12 @@ nsThread::ProcessNextEvent(bool aMayWait, bool* aResult)
 #else
               usleep(current_time - physical_time);
 #endif // win32
-          }
+          }*/
 
         }
       }
-
       if(run)event->Run();
-      //_MODIFY
+      //MODIFY
 
     } else if (aMayWait) {
       MOZ_ASSERT(ShuttingDown(),
@@ -1704,4 +1863,25 @@ nsThread::getFlag()
   MutexAutoLock lock(mFlagLock);
   return flag;
 }
+
+void
+nsThread::cancelFlag(uint64_t expTime)
+{
+  if(flagExpTime == expTime){
+    setFlag(false);
+      while(blockEventsExpTimeQueue.size() > 0){
+        //put block events back to event queu
+        MutexAutoLock lock(mLock);
+        this->mEventsRoot.PutEvent(blockEventsQueue.front().forget(), lock, blockEventsExpTimeQueue.front(), false);      
+        //blockEvents.erase(blockEventsExpTimeQueue.front());
+        //cancel them in block set
+        blockEventsExpTimeQueue.pop();
+        blockEventsQueue.pop();   
+      }
+    return;
+  } 
+  cancelFlags.insert(expTime);
+  std::set<uint64_t>::iterator it;
+}
+
 //_MODIFY

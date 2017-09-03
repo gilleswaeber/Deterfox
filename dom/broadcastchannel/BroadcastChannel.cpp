@@ -25,6 +25,10 @@
 #undef PostMessage
 #endif
 
+//_MODIFY
+#include "jstypes.h"
+//_MODIFY
+
 namespace mozilla {
 
 using namespace ipc;
@@ -417,6 +421,23 @@ BroadcastChannel::PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return;
   }
+
+  printf("broad\n");
+  if(aMessage.isString()){
+    char16_t c;
+    //if(aMessage.toString()->getChar(aCx,0,&c))printf("broadcast: %c\n",c);
+    JSString* jsStr = aMessage.toString();
+    nsAutoJSString code;
+    if(code.init(aCx, jsStr))printf("broad %s\n", code.get());
+}
+/*nsIThread* thread;
+    NS_GetMainThread(&thread);
+    nsThread* mainThread = ((nsThread*) thread);
+    nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+  //  if(currentThread == mainThread){
+    nsIEventTarget* target = ((nsIEventTarget*) NS_GetCurrentThread());
+    target->targetExpTime = get_counter() + 400;
+//}*/
 
   PostMessageInternal(aCx, aMessage, aRv);
 }

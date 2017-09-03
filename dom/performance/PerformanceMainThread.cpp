@@ -116,6 +116,9 @@ DOMHighResTimeStamp
 PerformanceMainThread::Now() const
 {
   //_MODIFY BEGIN 10/21/2016
+nsThread* mainThread;
+  NS_GetMainThread((nsIThread**)(&mainThread));
+nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
   uint64_t time = get_counter(this->GetDocumentIfCurrent());
   set_synchronize(true, this->GetDocumentIfCurrent());
   return time;

@@ -574,7 +574,8 @@ TimerThread::AddTimer(nsTimerImpl* aTimer)
   nsThread* mainThread;
   NS_GetMainThread((nsIThread**)(&mainThread));
   if(NS_GetCurrentThread() == mainThread && !isSystem){
-    this->expTime = get_counter() + 100;
+    //this->expTime = get_counter() + 100;
+    this->expTime = get_counter();
     mainThread->putFlag(this->expTime);
     //printf("set expTime %d,%d,%d, %d\n", expTime, aTimer->mDelay,aTimer->mType,aTimer->mGeneration);
   }

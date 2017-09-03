@@ -12,6 +12,7 @@
 
 //_MODIFY
 #include "../../js/src/vm/Counter.h"
+#include "nsThread.h"
 //_MODIFY
 // Local Includes
 #include "Navigator.h"
@@ -8231,6 +8232,7 @@ nsGlobalWindow::PostMessageMozOuter(JSContext* aCx, JS::Handle<JS::Value> aMessa
                                     JS::Handle<JS::Value> aTransfer,
                                     ErrorResult& aError)
 {
+
   MOZ_RELEASE_ASSERT(IsOuterWindow());
 
   //
@@ -8346,6 +8348,28 @@ nsGlobalWindow::PostMessageMozOuter(JSContext* aCx, JS::Handle<JS::Value> aMessa
   if (NS_WARN_IF(aError.Failed())) {
     return;
   }
+
+//_MODIFY
+/*printf("moz\n");
+if(aMessage.isString()){
+    char16_t c;
+   // if(aMessage.toString()->getChar(aCx,0,&c))printf("moz: %c\n",c);
+JSString* jsStr = aMessage.toString();
+    nsAutoJSString code;
+    if(code.init(aCx, jsStr))printf("moz %s\n", code.get());
+    else printf("inner\n");
+}else{printf("no string\n");}*/
+    
+    nsIThread* thread;
+    NS_GetMainThread(&thread);
+    nsThread* mainThread = ((nsThread*) thread);
+    nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+  //  if(currentThread == mainThread){
+    nsIEventTarget* target = ((nsIEventTarget*) NS_GetCurrentThread());
+    target->targetExpTime = get_counter() + 1000;
+    currentThread->blockEvents.insert(target->targetExpTime);
+//}
+//_MODIFY
 
   aError = NS_DispatchToCurrentThread(event);
 }

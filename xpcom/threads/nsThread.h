@@ -24,6 +24,7 @@
 
 //_MODIFY
 #include <map>
+#include <queue>
 //_MODIFY
 
 namespace mozilla {
@@ -59,7 +60,17 @@ public:
   std::string mName;
   
   std::map<void*, void*> keyMap;
+
+  bool handleFlag = false;
   //_MODIFY END
+
+    //_MODIFY
+    void cancelFlag(uint64_t expTime);
+    std::set<uint64_t> cancelFlags;
+    std::set<uint64_t> blockEvents;
+    std::queue<uint64_t> blockEventsExpTimeQueue;
+    std::queue<nsCOMPtr<nsIRunnable> > blockEventsQueue;
+    //_MODIFY
 
   enum MainThreadFlag
   {
@@ -107,7 +118,7 @@ public:
   void WaitForAllAsynchronousShutdowns();
 
   //_MODIFY BEGIN 10/22/2016
-  void putFlag(uint64_t expTime);
+  void putFlag(uint64_t expTime,int flag = 0);
   //_MODIFY END
 
 #ifdef MOZ_CRASHREPORTER
@@ -152,6 +163,7 @@ protected:
   nsresult PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget);
   nsresult PutEvent(already_AddRefed<nsIRunnable> aEvent,
                     nsNestedEventTarget* aTarget);
+  nsresult PutEvent(nsIRunnable* aEvent, nsNestedEventTarget* aTarget, uint64_t expTime);
   nsresult PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aTarget, uint64_t expTime);
 
   nsresult DispatchInternal(already_AddRefed<nsIRunnable> aEvent,
@@ -245,6 +257,7 @@ protected:
     NS_DECL_THREADSAFE_ISUPPORTS
     NS_DECL_NSIEVENTTARGET
 
+
     nsNestedEventTarget(NotNull<nsThread*> aThread,
                         NotNull<nsChainedEventQueue*> aQueue)
       : mThread(aThread)
@@ -263,7 +276,7 @@ protected:
     }
   };
 
-  // This lock protects access to mObserver, mEvents and mEventsAreDoomed.
+  // This lock protects access to blockEventsmEvents and mEventsAreDoomed.
   // All of those fields are only modified on the thread itself (never from
   // another thread).  This means that we can avoid holding the lock while
   // using mObserver and mEvents on the thread itself.  When calling PutEvent

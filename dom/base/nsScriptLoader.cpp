@@ -59,6 +59,8 @@
 //_MODIFY
 #include "../../js/src/vm/Counter.h"
 #include "nsThread.h"
+#include "nsString.h"
+#include <string>
 //_MODIFY
 
 using namespace mozilla;
@@ -1294,6 +1296,13 @@ nsScriptLoader::StartLoad(nsScriptLoadRequest *aRequest, const nsAString &aType,
   rv = NS_NewIncrementalStreamLoader(getter_AddRefs(loader), handler);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  //_MODIFY
+   nsThread* mainThread;
+   NS_GetMainThread((nsIThread**)(&mainThread));
+  if(this->expTime > get_counter() && this->expTime - get_counter() <= 10000){
+    mainThread->putFlag(this->expTime,1);
+  }
+  //_MODIFY
   return channel->AsyncOpen2(loader);
 }
 
@@ -1400,21 +1409,40 @@ nsScriptLoader::CreateLoadRequest(nsScriptKind aKind,
                                  this);
 }
 
+//_MODIFY
+bool
+nsScriptLoader::cancelFlagFunc(){
+   nsThread* mainThread;
+   NS_GetMainThread((nsIThread**)(&mainThread));
+   mainThread->cancelFlag(this->expTime);
+}
+//_MODIFY
+
 bool
 nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
 {
+  //_MODIFY
+  /*nsAutoCString path;
+  if(aElement && aElement->GetScriptURI())aElement->GetScriptURI()->GetPath(path);
+  if(path.get())printf("%s\n", path.get());
+  std::string paths(path.get());*/
+//_MODIFY
     //_MODIFY
     nsThread* mainThread;
     NS_GetMainThread((nsIThread**)(&mainThread));
     if(NS_GetCurrentThread() == mainThread && !isSystem){
         set_synchronize(false);
-        this->expTime = get_counter((void*)mDocument) + 1000;
+        if(!parsing)this->expTime = get_counter((void*)mDocument) + 10000;
+        else{
+          cancelFlagFunc();
+          this->expTime = get_counter((void*)mDocument) + 10000;
+        }
         this->key = (void*)mDocument;
-        //request->expTime = get_counter((void*)mDocument) + 100;
-        //request->key = (void*)key;
-        mainThread->putFlag(this->expTime);
+        this->setExpTime = true;
     }
     isSystem = true;
+    cancelFlag = true;
+    parsing = true;
     //_MODIFY
 
   // We need a document to evaluate scripts.
@@ -1463,6 +1491,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       }
     }
   }
+  
 
   // Step 14. in the HTML5 spec
   nsresult rv = NS_OK;
@@ -1590,6 +1619,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       request->mIsNonAsyncScriptInserted = true;
       mNonAsyncExternalScriptInsertedRequests.AppendElement(request);
       if (request->IsReadyToRun()) {
+
         // The script is available already. Run it ASAP when the event
         // loop gets a chance to spin.
         ProcessPendingRequestsAsync();
@@ -1736,6 +1766,9 @@ class NotifyOffThreadScriptLoadCompletedRunnable : public Runnable
   void *mToken;
 
 public:
+  //_MODIFY
+  uint64_t expTime;
+  //_MODIFY
   NotifyOffThreadScriptLoadCompletedRunnable(nsScriptLoadRequest* aRequest,
                                              nsScriptLoader* aLoader)
     : mRequest(aRequest), mLoader(aLoader), mToken(nullptr)
@@ -1826,6 +1859,13 @@ OffThreadScriptLoaderCallback(void *aToken, void *aCallbackData)
     dont_AddRef(static_cast<NotifyOffThreadScriptLoadCompletedRunnable*>(aCallbackData));
   aRunnable->SetToken(aToken);
 
+  //_MODIFY
+  nsThread* mainThread;
+  NS_GetMainThread((nsIThread**)(&mainThread));
+nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+  mainThread->targetExpTime = aRunnable->expTime;
+  //_MODIFY
+
   NS_DispatchToMainThread(aRunnable);
 }
 
@@ -1862,6 +1902,27 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
   RefPtr<NotifyOffThreadScriptLoadCompletedRunnable> runnable =
     new NotifyOffThreadScriptLoadCompletedRunnable(aRequest, this);
 
+    //_MODIFY
+    cancelFlag = false;
+    nsThread* mainThread;
+    NS_GetMainThread((nsIThread**)(&mainThread));
+    if(this->setExpTime){
+        //mainThread->putFlag(this->expTime,1);
+        this->setExpTime = false;
+    }
+    nsThread* currentThread = ((nsThread*) NS_GetCurrentThread());
+  if(cross_origin){
+    runnable->expTime = this->expTime;
+    currentThread->key = this->key;
+    cross_origin = false;
+  }else{
+    //runnable->expTime = getPhysicalTime();
+    runnable->expTime = this->expTime;
+    currentThread->key = this->key;
+  }
+  //_MODIFY
+
+    //_MODIFY
   if (aRequest->IsModuleRequest()) {
 
     if (!JS::CompileOffThreadModule(cx, options,
@@ -1877,6 +1938,7 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
                               static_cast<void*>(runnable))) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
+
   }
 
   mDocument->BlockOnload();
@@ -1885,19 +1947,6 @@ nsScriptLoader::AttemptAsyncScriptCompile(nsScriptLoadRequest* aRequest)
   Unused << runnable.forget();
 
 
-  //_MODIFY
-  nsThread* mainThread;
-  NS_GetMainThread((nsIThread**)(&mainThread));
-  //if(this->expTime < 0 || this->expTime > get_counter() + 1000)this->expTime = get_counter();
-  if(cross_origin){
-    mainThread->expTime = getPhysicalTime();
-    mainThread->key = this->key;
-    cross_origin = false;
-  }else{
-    mainThread->expTime = this->expTime;
-    mainThread->key = this->key;
-  }
-  //_MODIFY
   return NS_OK;
 }
 
@@ -1943,6 +1992,7 @@ nsScriptLoader::GetScriptSource(nsScriptLoadRequest* aRequest, nsAutoString& inl
 nsresult
 nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest)
 {
+
   NS_ASSERTION(nsContentUtils::IsSafeToRunScript(),
                "Processing requests when running scripts is unsafe.");
   NS_ASSERTION(aRequest->IsReadyToRun(),
@@ -2225,6 +2275,7 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest)
 void
 nsScriptLoader::ProcessPendingRequestsAsync()
 {
+
   if (mParserBlockingRequest ||
       !mXSLTRequests.isEmpty() ||
       !mLoadedAsyncRequests.isEmpty() ||
@@ -2234,6 +2285,7 @@ nsScriptLoader::ProcessPendingRequestsAsync()
     NS_DispatchToCurrentThread(NewRunnableMethod(this,
                                                  &nsScriptLoader::ProcessPendingRequests));
   }
+
 }
 
 void
@@ -2314,6 +2366,7 @@ nsScriptLoader::ProcessPendingRequests()
     mDocumentParsingDone = false;
     mDocument->UnblockOnload(true);
   }
+  
 }
 
 bool
@@ -2420,7 +2473,7 @@ nsScriptLoader::ConvertToUTF16(nsIChannel* aChannel, const uint8_t* aData,
 
   // The encoding info precedence is as follows from high to low:
   // The BOM
-  // HTTP Content-Type (if name recognized)
+  //, this->expTime HTTP Content-Type (if name recognized)
   // charset attribute (if name recognized)
   // The encoding of the document
 
@@ -2599,6 +2652,10 @@ nsScriptLoader::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
   // Process our request and/or any pending ones
   ProcessPendingRequests();
 
+  parsing = false;
+  if(cancelFlag){
+    cancelFlagFunc();
+  }
   return NS_OK;
 }
 
@@ -2789,6 +2846,7 @@ nsScriptLoader::ParsingComplete(bool aTerminated)
   // Have to call this even if aTerminated so we'll correctly unblock
   // onload and all.
   ProcessPendingRequests();
+  
 }
 
 void
@@ -3054,3 +3112,4 @@ nsScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
   return mScriptLoader->OnStreamComplete(aLoader, mRequest, aStatus, mSRIStatus,
                                          mBuffer, mSRIDataVerifier);
 }
+

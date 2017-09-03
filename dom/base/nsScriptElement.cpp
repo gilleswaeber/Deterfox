@@ -147,4 +147,13 @@ nsScriptElement::MaybeProcessScript()
 
   RefPtr<nsScriptLoader> loader = ownerDoc->ScriptLoader();
   return loader->ProcessScriptElement(this);
+
+  //_MODIFY
+  /*bool res = loader->ProcessScriptElement(this);
+  if(loader->cancelFlag){
+    printf("father cancel flag %ld\n", loader->expTime);
+    loader->cancelFlagFunc();
+  }
+  return res;*/
+  //_MODIFY
 }
