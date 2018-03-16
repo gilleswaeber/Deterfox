@@ -217,7 +217,11 @@ private:
     uint64_t mExpTime[EVENTS_PER_PAGE + 1];
     //@MODIFY Mon 17 Oct 2016 07:13:43 PM EDT END
 
+    #ifdef WIN32
+    nsIRunnable* mEvents[2 * EVENTS_PER_PAGE - 1]; // Add padding
+    #else
     nsIRunnable* mEvents[EVENTS_PER_PAGE];
+    #endif
   };
 
   static_assert((sizeof(Page) & (sizeof(Page) - 1)) == 0,

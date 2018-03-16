@@ -454,7 +454,11 @@ public:
 
   //_MODIFY
   static TimeStamp NowCounter(){
-      return TimeStamp(get_counter() * 1000000);
+    #ifdef XP_WIN
+    return TimeStamp(TimeStampValue(get_counter() * 1000000, 0, false));
+    #else
+    return TimeStamp(get_counter() * 1000000);
+    #endif
   }
   //_MODIFY
 

@@ -1415,6 +1415,7 @@ nsScriptLoader::cancelFlagFunc(){
    nsThread* mainThread;
    NS_GetMainThread((nsIThread**)(&mainThread));
    mainThread->cancelFlag(this->expTime);
+   return false; // default
 }
 //_MODIFY
 
