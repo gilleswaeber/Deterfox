@@ -316,7 +316,7 @@ def lib_path(target, vc_path, windows_sdk_dir, ucrt_sdk_dir, dia_sdk_dir):
         return
     vc_target = {
         'x86': '',
-        'x86_64': 'amd64',
+        'x86_64': 'x64',
         'arm': 'arm',
     }.get(target.cpu)
     if vc_target is None:

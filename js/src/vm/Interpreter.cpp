@@ -60,9 +60,15 @@
 //_MODIFY include counter.h
 #include <ctime>
 #include "Counter.h"
-#include <sys/time.h>
 #include <map>
 #include <thread>
+
+#ifndef WIN32
+#include <sys/time.h>
+#else
+#include <windows.h>
+#include <mmsystem.h> // timeGetTime
+#endif
 //_MODIFY
 
 using namespace js;
@@ -90,9 +96,13 @@ void* inc_key = (void*)1;
 void inc_counter(uint64_t args, void* key) {
     if(key == NULL)key = (void*)1;
     if(physical_base == 0){
-      struct timeval tp;
-      gettimeofday(&tp, NULL);
-      physical_base = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+        #ifdef WIN32
+        physical_base = timeGetTime();
+        #else
+        struct timeval tp;
+        gettimeofday(&tp, NULL);
+        physical_base = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+        #endif
     }
     uint64_t c = (uint64_t)args;
     counter += c;
@@ -135,10 +145,14 @@ uint64_t getPhysicalBase(){
 
 uint64_t getPhysicalTime(){
     if(physical_base == 0)return counter;
-    struct timeval tp;
     uint64_t physical_time;
+    #ifdef WIN32
+    physical_time = timeGetTime();
+    #else
+    struct timeval tp;
     gettimeofday(&tp, NULL);
     physical_time = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    #endif
     physical_time -= physical_base;
     physical_time *= 1000;
     return physical_time;
