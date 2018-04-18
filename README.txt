@@ -1,6 +1,7 @@
-This is a fork of Deterfox (http://deterfox.com/), changed to allow compilation on Windows using Visual Studio 2017.
+This is a fork of Deterfox (http://deterfox.com/ -- https://github.com/nkdxczh/gecko-dev/tree/deterfox), changed to allow compilation on Windows using Visual Studio 2017.
 
 The default documentation works fine for Linux.
+On Ubuntu, the compilation required those packages: build-essential autoconf2.13 libgconf2-dev libpulse-dev libasound2-dev yasm libdbus-glib-1-dev gtk-2.0 gtk-3.0 glib-2.0 libxt-dev.
 
 Instructions for Windows (64-bit):
 1. Follow the Windows Prerequisities Guide at https://developer.mozilla.org/en-US/docs/Mozilla/Developer_guide/Build_Instructions/Windows_Prerequisites — install Visual Studio 2017 (do include the MFC/ATL support), install Rust, install mozilla-build
